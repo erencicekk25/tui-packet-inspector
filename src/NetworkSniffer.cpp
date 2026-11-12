@@ -14,6 +14,7 @@
 #elif defined(__linux__)
 #include <arpa/inet.h>
 #include <cerrno>
+#include <linux/if_ether.h>
 #include <linux/if_packet.h>
 #include <net/ethernet.h>
 #include <net/if.h>
@@ -104,7 +105,9 @@ void NetworkSniffer::run() {
 
 namespace {
 
+#if defined(_WIN32) || defined(__linux__)
 constexpr std::size_t kSnapLength = 65536;
+#endif
 
 #if defined(_WIN32)
 

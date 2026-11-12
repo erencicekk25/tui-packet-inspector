@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(tui-packet-inspector
-    VERSION 0.2.0
+    VERSION 1.0.0
     DESCRIPTION "Zero-dependency terminal packet inspector for TCP, UDP and Modbus"
     LANGUAGES CXX)
 
@@ -23,6 +23,7 @@ find_package(Threads REQUIRED)
 add_library(tpi_options INTERFACE)
 if(MSVC)
     target_compile_options(tpi_options INTERFACE /W4 /permissive- /utf-8)
+    target_compile_definitions(tpi_options INTERFACE _CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(tpi_options INTERFACE -Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor)
     if(TPI_ENABLE_SANITIZERS)
@@ -31,13 +32,16 @@ else()
     endif()
 endif()
 
-# --- core library: capture engine + protocol decoders ---------------------------
+# --- core library: capture engine, protocol decoders, statistics, TUI ------------
 add_library(tpi_core STATIC
     src/PacketBuffer.cpp
     src/NetworkSniffer.cpp
     src/PcapFile.cpp
     src/SyntheticSource.cpp
-    src/ProtocolDecoder.cpp)
+    src/ProtocolDecoder.cpp
+    src/TrafficStats.cpp
+    src/Terminal.cpp
+    src/TuiRenderer.cpp)
 
 target_include_directories(tpi_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(tpi_core PUBLIC cxx_std_17)
@@ -66,7 +70,8 @@ if(TPI_BUILD_TESTS)
     add_executable(tpi_tests
         tests/TestMain.cpp
         tests/CaptureTests.cpp
-        tests/DecoderTests.cpp)
+        tests/DecoderTests.cpp
+        tests/DashboardTests.cpp)
     target_link_libraries(tpi_tests PRIVATE tpi_core tpi_options)
     if(MINGW)
         target_link_options(tpi_tests PRIVATE -static)

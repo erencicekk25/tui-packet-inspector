@@ -1,14 +1,17 @@
-// tui-packet-inspector - capture engine front-end.
-// Captures packets from a live socket, a pcap file or the virtual demo stream and
-// prints a short hex preview of every frame.
+// tui-packet-inspector - command line front-end.
+// Captures packets from a live socket, a pcap file or the virtual demo stream, decodes
+// them (Ethernet / IPv4 / IPv6 / TCP / UDP / Modbus) and prints one line per packet.
 
 #include "NetworkSniffer.hpp"
 #include "PacketBuffer.hpp"
+#include "ProtocolDecoder.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <exception>
 #include <memory>
 #include <stdexcept>
@@ -29,6 +32,7 @@ struct Options {
     bool realtime = false;
     double rate = 300.0;
     std::uint64_t count = 0;
+    std::vector<std::uint16_t> modbusPorts{502};
 };
 
 void printUsage() {
@@ -40,6 +44,7 @@ void printUsage() {
         "      --realtime         replay a pcap file with its original timing\n"
         "  -w, --write <file>     record captured packets to a .pcap file\n"
         "      --rate <pps>       demo stream rate (default 300)\n"
+        "      --modbus-port <p>  extra TCP/UDP port to decode as Modbus (repeatable)\n"
         "  -n, --count <N>        stop after N packets\n"
         "  -h, --help             show this help");
 }
@@ -68,6 +73,12 @@ Options parseArguments(int argc, char** argv) {
             options.writePath = value();
         } else if (arg == "--rate") {
             options.rate = std::stod(value());
+        } else if (arg == "--modbus-port") {
+            const unsigned long port = std::stoul(value());
+            if (port == 0 || port > 65535) {
+                throw std::invalid_argument("invalid Modbus port: " + std::to_string(port));
+            }
+            options.modbusPorts.push_back(static_cast<std::uint16_t>(port));
         } else if (arg == "-n" || arg == "--count") {
             options.count = std::stoull(value());
         } else if (arg == "-h" || arg == "--help") {
@@ -91,13 +102,27 @@ std::unique_ptr<tpi::CaptureSource> openSource(const Options& options) {
     return tpi::openSyntheticSource(synthetic);
 }
 
-void printPacket(std::uint64_t index, const tpi::RawPacket& packet) {
-    std::printf("#%-6llu %5u bytes  ", static_cast<unsigned long long>(index), packet.originalLength);
-    const std::size_t preview = std::min<std::size_t>(packet.bytes.size(), 24);
-    for (std::size_t i = 0; i < preview; ++i) {
-        std::printf("%02x ", packet.bytes[i]);
-    }
-    std::printf("%s\n", packet.bytes.size() > preview ? "..." : "");
+std::string formatTime(tpi::Clock::time_point timestamp) {
+    const auto sinceEpoch = timestamp.time_since_epoch();
+    const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(sinceEpoch);
+    const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(sinceEpoch - seconds).count();
+    const auto time = static_cast<std::time_t>(seconds.count());
+    std::tm local{};
+#if defined(_WIN32)
+    localtime_s(&local, &time);
+#else
+    localtime_r(&time, &local);
+#endif
+    char text[32];
+    std::snprintf(text, sizeof text, "%02d:%02d:%02d.%06ld", local.tm_hour, local.tm_min, local.tm_sec,
+                  static_cast<long>(micros));
+    return text;
+}
+
+void printPacket(std::uint64_t index, const tpi::DecodedPacket& packet) {
+    std::printf("%-7llu %s  %-6s %-24s -> %-24s %5zu  %s\n", static_cast<unsigned long long>(index),
+                formatTime(packet.timestamp).c_str(), tpi::protocolName(packet.protocol), packet.source().c_str(),
+                packet.destination().c_str(), packet.wireLength, packet.summary().c_str());
 }
 
 }  // namespace
@@ -107,6 +132,10 @@ int main(int argc, char** argv) {
         const Options options = parseArguments(argc, argv);
         std::signal(SIGINT, handleSignal);
         std::signal(SIGTERM, handleSignal);
+
+        tpi::DecoderOptions decoderOptions;
+        decoderOptions.modbusPorts = options.modbusPorts;
+        const tpi::ProtocolDecoder decoder(decoderOptions);
 
         tpi::PacketBuffer buffer(65536);
         tpi::NetworkSniffer sniffer(openSource(options), buffer);
@@ -128,7 +157,7 @@ int main(int argc, char** argv) {
             batch.clear();
             buffer.drain(batch, 1024);
             for (const auto& packet : batch) {
-                printPacket(++printed, packet);
+                printPacket(++printed, decoder.decode(packet));
                 if (options.count != 0 && printed >= options.count) {
                     g_stopRequested = 1;
                     break;

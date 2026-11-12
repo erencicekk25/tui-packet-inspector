@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(tui-packet-inspector
-    VERSION 0.1.0
+    VERSION 0.2.0
     DESCRIPTION "Zero-dependency terminal packet inspector for TCP, UDP and Modbus"
     LANGUAGES CXX)
 
@@ -31,12 +31,13 @@ else()
     endif()
 endif()
 
-# --- core library: capture engine ---------------------------------------------
+# --- core library: capture engine + protocol decoders ---------------------------
 add_library(tpi_core STATIC
     src/PacketBuffer.cpp
     src/NetworkSniffer.cpp
     src/PcapFile.cpp
-    src/SyntheticSource.cpp)
+    src/SyntheticSource.cpp
+    src/ProtocolDecoder.cpp)
 
 target_include_directories(tpi_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(tpi_core PUBLIC cxx_std_17)
@@ -64,7 +65,8 @@ if(TPI_BUILD_TESTS)
     enable_testing()
     add_executable(tpi_tests
         tests/TestMain.cpp
-        tests/CaptureTests.cpp)
+        tests/CaptureTests.cpp
+        tests/DecoderTests.cpp)
     target_link_libraries(tpi_tests PRIVATE tpi_core tpi_options)
     if(MINGW)
         target_link_options(tpi_tests PRIVATE -static)

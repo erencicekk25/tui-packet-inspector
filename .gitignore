@@ -1,0 +1,17 @@
+# Build output
+build/
+build-*/
+out/
+cmake-build-*/
+compile_commands.json
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+
+# Captures produced while testing
+*.pcap
+*.pcapng
+!samples/*.pcap
